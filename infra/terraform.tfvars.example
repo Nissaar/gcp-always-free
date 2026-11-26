@@ -1,0 +1,18 @@
+# Only for running OpenTofu from your laptop; CI passes these as TF_VAR_* from the repository variables
+# (docs/CONFIGURATION.md lists them all). Copy to terraform.tfvars (git-ignored), replace every <your-...> value.
+
+# --- required (outputs of bootstrap/: tofu -chdir=bootstrap output)
+project_id               = "<your-project-id>"
+vm_service_account_email = "vm-free-tier@<your-project-id>.iam.gserviceaccount.com"
+
+# --- optional (defaults shown)
+# region                       = "us-east1"      # keep equal to bootstrap's region
+# zone                         = "us-east1-b"
+# vm_name                      = "free-vm"
+# disk_size_gb                 = 30              # 10 to 30 stays free
+# deletion_protection          = true            # set false before a planned destroy
+# enable_tailscale_direct_ipv6 = true            # open UDP 41641 over IPv6 for Tailscale
+# patch_installer              = "osconfig"      # osconfig | unattended
+# patch_reboot_mode            = "alert"         # alert | staggered | none
+# github_owner                 = ""              # build farm only (docs/BUILD-FARM.md)
+# github_app_installation_id   = 0               # 0 = build farm off

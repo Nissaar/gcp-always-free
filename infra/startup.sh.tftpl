@@ -1,0 +1,75 @@
+#!/bin/bash
+# Runs as root on every boot, so every step must be safe to repeat.
+# The VM has an external IPv6 address only: everything it downloads must answer on IPv6
+# (deb.debian.org, Docker Hub). Images from ghcr.io come through the tailnet (README).
+set -euo pipefail
+
+# No swap (design choice). Removes the swap file an earlier version of this script made.
+if swapon --show=NAME --noheadings | grep -qx /swapfile; then
+  swapoff /swapfile
+fi
+rm -f /swapfile /etc/sysctl.d/99-swappiness.conf
+sed -i '\#^/swapfile #d' /etc/fstab
+
+# No IPv4 route to the internet: let apt go straight to IPv6 instead of timing out on IPv4 first.
+echo 'Acquire::ForceIPv6 "true";' > /etc/apt/apt.conf.d/99force-ipv6
+
+# Docker from Debian (deb.debian.org answers on IPv6) + automatic security updates.
+missing=""
+for pkg in unattended-upgrades docker.io docker-compose; do
+  dpkg -s "$pkg" >/dev/null 2>&1 || missing="$missing $pkg"
+done
+if [ -n "$missing" ]; then
+  apt-get update -q
+  # shellcheck disable=SC2086 # word splitting wanted: one package per word
+  DEBIAN_FRONTEND=noninteractive apt-get install -yq $missing
+fi
+# Baseline in case the patching step at the end fails; apply-patching.sh writes the same file and adds the rest.
+cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+
+# Containers need IPv6 NAT (the kuma network is dual-stack). Debian 13 ships Docker 26, where
+# ip6tables still sits behind the experimental flag. Small local logs: the disk is 30 GB.
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json.new <<'EOF'
+{
+  "experimental": true,
+  "ip6tables": true,
+  "log-driver": "local",
+  "log-opts": { "max-size": "5m", "max-file": "3" }
+}
+EOF
+if cmp -s /etc/docker/daemon.json.new /etc/docker/daemon.json; then
+  rm -f /etc/docker/daemon.json.new
+else
+  mv /etc/docker/daemon.json.new /etc/docker/daemon.json
+  systemctl restart docker || true
+fi
+systemctl enable --now docker
+
+# The kuma stack (stacks/kuma/ in the repo). Overwritten on every boot so an apply + reboot
+# brings changes; .env (your secrets) is never touched.
+install -d -m 0755 /opt/stacks/kuma
+%{ for name, content in stack_files ~}
+echo '${content}' | base64 -d > /opt/stacks/kuma/${name}
+%{ endfor ~}
+chmod 0755 /opt/stacks/kuma/*.sh
+if [ -f /opt/stacks/kuma/.env ]; then
+  /opt/stacks/kuma/up.sh || echo "kuma stack: up.sh failed, see the lines above"
+else
+  echo "kuma stack: no /opt/stacks/kuma/.env yet (docs/WHAT-YOU-DO.md)"
+fi
+
+# OS patching (patch/README.md in the repo): security updates every day with unattended-upgrades, the patch agent (status feed, post-boot check, reboot approvals)
+# and its systemd timers. The same script runs on the other machines. Idempotent: it rewrites a file only when it changed. Secrets (ntfy topic, Kuma push URL)
+# are never written here: /etc/patch-agent.env on the VM, by hand.
+install -d -m 0755 /opt/patch
+%{ for name, content in patch_files ~}
+echo '${content}' | base64 -d > /opt/patch/${name}
+%{ endfor ~}
+chmod 0755 /opt/patch/patch-agent /opt/patch/apply-patching.sh
+/opt/patch/apply-patching.sh --host ${vm_name} --day wed --mode ${patch_reboot_mode} --installer ${patch_installer} --kuma yes \
+  --containers "kuma_tailscale kuma_app kuma_autokuma kuma_sync kuma_push" --ts-container kuma_tailscale --push-container kuma_push \
+  || echo "patching: apply-patching.sh failed, see the lines above"

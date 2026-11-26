@@ -1,0 +1,16 @@
+# Only for running OpenTofu from your own machine (scripts/bootstrap.sh writes bootstrap/terraform.tfvars for you).
+# Copy to terraform.tfvars (git-ignored) and replace EVERY <your-...> value. scripts/preflight.sh fails while one is left.
+# The full list of variables: docs/CONFIGURATION.md.
+
+# --- required
+project_id           = "<your-project-id>"                   # the project ID (not the name or number); it must exist and have billing linked
+billing_account_id   = "<your-billing-account-id>"           # 0A1B2C-3D4E5F-6A7B8C (console: Billing -> Account management)
+github_repository    = "<your-github-user>/<your-private-repo>"  # YOUR private copy of this repository
+github_repository_id = "<your-numeric-repository-id>"        # gh api repos/<owner>/<name> --jq .id (bootstrap.sh reads it)
+
+# --- optional: written by scripts/bootstrap.sh (GCP_REGION), default us-east1
+# region = "us-east1"   # us-east1 | us-central1 | us-west1 (free e2-micro regions)
+#
+# The other settings (guard_budget_amount, trial_budget_amount, enable_billing_kill_switch, kill_switch_dry_run, build_region,
+# images_keep_count) are changed in bootstrap/variables.tf and bootstrap/cloudbuild.tf: scripts/bootstrap.sh rewrites this file on
+# every run, so values written only here would be lost. Their defaults are the safe ones (docs/CONFIGURATION.md).

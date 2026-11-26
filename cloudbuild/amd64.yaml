@@ -1,0 +1,66 @@
+# Reusable linux/amd64 image build (docs/BUILD-FARM.md).
+#
+# infra/cloudbuild.tf reads this file and puts it INLINE into one trigger per
+# repo and event, so the app repos need no build file of their own. A change
+# here reaches the triggers with the next tofu apply.
+#
+# Substitutions (set per repo by the trigger, from build_repos):
+#   _AR_REPO     us-central1-docker.pkg.dev/<project>/images
+#   _IMAGE       image name, e.g. photo-sweep
+#   _DOCKERFILE  path from the repo root, e.g. Dockerfile or docker/Dockerfile
+#   _CONTEXT     build context from the repo root, e.g. .
+#   _SOURCE_URL  https://github.com/<owner>/<repo>
+#
+# Tags pushed:
+#   push to main -> <_AR_REPO>/<_IMAGE>:<full commit sha> and :latest
+#   git tag      -> <_AR_REPO>/<_IMAGE>:<tag name>
+# Every image carries the label org.opencontainers.image.revision=<commit sha>;
+# the cluster's multiarch job reads it to build the matching arm64 image.
+#
+# Same file by hand (from an app repo checkout, as yourself):
+#   gcloud builds submit --region us-central1 --config <this file> \
+#     --substitutions _AR_REPO=...,_IMAGE=...,_SOURCE_URL=...,COMMIT_SHA=$(git rev-parse HEAD) .
+#
+# Cloud Build replaces $NAME / ${NAME} with substitutions; shell variables
+# are written $$name so they reach bash as $name.
+steps:
+  - id: build-and-push
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        image="${_AR_REPO}/${_IMAGE}"
+        if [ -n "${TAG_NAME}" ]; then
+          tags=("$$image:${TAG_NAME}")
+        else
+          tags=("$$image:${COMMIT_SHA}" "$$image:latest")
+        fi
+        targs=()
+        for t in "$${tags[@]}"; do targs+=(-t "$$t"); done
+        docker build --platform linux/amd64 --pull \
+          --file "${_DOCKERFILE}" \
+          --label "org.opencontainers.image.revision=${COMMIT_SHA}" \
+          --label "org.opencontainers.image.source=${_SOURCE_URL}" \
+          "$${targs[@]}" \
+          "${_CONTEXT}"
+        for t in "$${tags[@]}"; do docker push "$$t"; done
+        echo "pushed: $${tags[*]}"
+
+# Defaults; the trigger overrides them per repo.
+substitutions:
+  _DOCKERFILE: Dockerfile
+  _CONTEXT: .
+
+options:
+  # Required when a build runs as a user-managed service account.
+  logging: CLOUD_LOGGING_ONLY
+  # The trigger may pass substitutions a build does not use.
+  substitutionOption: ALLOW_LOOSE
+  # No machineType: the default pool's e2-standard-2 is the free one
+  # (2,500 build-minutes/month per billing account).
+
+timeout: 1800s

@@ -1,0 +1,26 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+crash.log
+crash.*.log
+tfplan
+plan.txt
+
+# Local inputs (project / billing IDs)
+*.tfvars
+!*.tfvars.example
+
+# Never commit credentials
+*.json
+!renovate.json
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+bootstrap/.killswitch.zip
+__pycache__/
+
+# Stack files that are config, not credentials
+!stacks/*/serve.json
