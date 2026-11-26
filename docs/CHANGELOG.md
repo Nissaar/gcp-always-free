@@ -22,3 +22,4 @@ Notable changes of this public copy, newest first. Changes that need a manual st
 
 ### Changed
 - The Kuma stack's `.env.example` describes a generic git source instead of the original author's mirror (the stack still only starts when you create `.env`).
+
